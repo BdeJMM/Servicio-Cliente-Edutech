@@ -3,12 +3,16 @@ package com.edutech.servicioalcliente.controller;
 import com.edutech.servicioalcliente.model.edutechmodel;
 import com.edutech.servicioalcliente.service.edutechservice;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
+import org.springframework.hateoas.EntityModel;
+import org.springframework.hateoas.CollectionModel;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
 @RestController
 @RequestMapping("/api/edutech")
@@ -23,52 +27,47 @@ public class edutechcontroller {
     }
 
     /**
-     * Obtener todos los tickets existentes.
-     * Método HTTP: GET
-     * Endpoint: /api/v1/tickets
-     * @return Lista de todos los tickets
+     * Obtener todos los tickets existentes con enlaces HATEOAS.
      */
     @GetMapping
-    public List<edutechmodel> obtenerTodosLosTickets(){
-        return edutechservice.obtenerTodos();
+    public CollectionModel<EntityModel<edutechmodel>> obtenerTodosLosTickets(){
+        List<EntityModel<edutechmodel>> tickets = edutechservice.obtenerTodos().stream()
+            .map(this::toEntityModel)
+            .collect(Collectors.toList());
+        
+        return CollectionModel.of(tickets)
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTodosLosTickets()).withSelfRel())
+            .add(linkTo(methodOn(edutechcontroller.class).crearTicket(null)).withRel("create"));
     }
-
+    
     /**
-     * Obtener un ticket por su ID.
-     * Método HTTP: GET
-     * Endpoint: /api/v1/tickets/{id}
-     * @param id ID del ticket
-     * @return El ticket encontrado o error 404 si no existe
+     * Obtener un ticket por su ID con enlaces HATEOAS.
      */
     @GetMapping("/{id}")
-    public edutechmodel obtenerTicketPorId(@PathVariable Long id) {
-        return edutechservice.obtenerPorId(id)
+    public EntityModel<edutechmodel> obtenerTicketPorId(@PathVariable Long id) {
+        edutechmodel ticket = edutechservice.obtenerPorId(id)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado con ID: " + id));
+        
+        return toEntityModel(ticket);
     }
 
     /**
-     * Crear un nuevo ticket de soporte.
-     * Método HTTP: POST
-     * Endpoint: /api/v1/tickets
-     * @param ticket Ticket a guardar
-     * @return Ticket creado con código 201
-     */
+     * Crear un nuevo ticket con enlaces HATEOAS.
+     */ 
     @PostMapping
-    public ResponseEntity<edutechmodel> crearTicket(@RequestBody edutechmodel ticket){
+    public ResponseEntity<EntityModel<edutechmodel>> crearTicket(@RequestBody edutechmodel ticket){
         edutechmodel nuevo = edutechservice.guardar(ticket);
-        return new ResponseEntity<>(nuevo, HttpStatus.CREATED);
+        EntityModel<edutechmodel> entityModel = toEntityModel(nuevo);
+        
+        return ResponseEntity.created(entityModel.getRequiredLink("self").toUri())
+                .body(entityModel);
     }
 
     /**
-     * Actualizar un ticket existente por ID.
-     * Método HTTP: PUT
-     * Endpoint: /api/v1/tickets/{id}
-     * @param id ID del ticket a actualizar
-     * @param ticket Datos nuevos del ticket
-     * @return Ticket actualizado o error 404 si no existe
+     * Actualizar un ticket existente con enlaces HATEOAS.
      */
     @PutMapping("/{id}")
-    public ResponseEntity<edutechmodel> actualizarTicket(@PathVariable Long id, @RequestBody edutechmodel ticket) {
+    public ResponseEntity<EntityModel<edutechmodel>> actualizarTicket(@PathVariable Long id, @RequestBody edutechmodel ticket) {
         Optional<edutechmodel> existente = edutechservice.obtenerPorId(id);
         if (existente.isPresent()) {
             edutechmodel actual = existente.get();
@@ -76,7 +75,9 @@ public class edutechcontroller {
             actual.setDescripcion(ticket.getDescripcion());
             actual.setEstado(ticket.getEstado());
             actual.setClienteid(ticket.getClienteid());
-            return ResponseEntity.ok(edutechservice.guardar(actual));
+            
+            edutechmodel actualizado = edutechservice.guardar(actual);
+            return ResponseEntity.ok(toEntityModel(actualizado));
         } else {
             return ResponseEntity.notFound().build();
         }
@@ -84,50 +85,44 @@ public class edutechcontroller {
 
     /**
      * Eliminar un ticket por ID.
-     * Método HTTP: DELETE
-     * Endpoint: /api/v1/tickets/{id}
-     * @param id ID del ticket a eliminar
-     * @return Código 204 si se eliminó o 404 si no existe
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> eliminarTicket(@PathVariable Long id) {
         Optional<edutechmodel> existente = edutechservice.obtenerPorId(id);
         if (existente.isPresent()) {
             edutechservice.eliminar(id);
-            return ResponseEntity.noContent().build(); // 204 No Content
+            return ResponseEntity.noContent().build();
         } else {
-            return ResponseEntity.notFound().build(); // 404 Not Found
+            return ResponseEntity.notFound().build();
         }
     }
 
-    // ========== MÉTODOS ÚTILES PARA SERVICIO AL CLIENTE ==========
-
     /**
-     * Obtener tickets por cliente específico.
-     * Método HTTP: GET
-     * Endpoint: /api/v1/tickets/cliente/{clienteId}
-     * @param clienteId ID del cliente
-     * @return Lista de tickets del cliente
+     * Obtener tickets por cliente con enlaces HATEOAS.
      */
     @GetMapping("/cliente/{clienteId}")
-    public ResponseEntity<List<edutechmodel>> obtenerTicketsPorCliente(@PathVariable Long clienteId) {
+    public ResponseEntity<CollectionModel<EntityModel<edutechmodel>>> obtenerTicketsPorCliente(@PathVariable Long clienteId) {
         List<edutechmodel> tickets = edutechservice.obtenerTicketsPorCliente(clienteId);
         if (tickets.isEmpty()) {
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(tickets);
+        
+        List<EntityModel<edutechmodel>> ticketModels = tickets.stream()
+            .map(this::toEntityModel)
+            .collect(Collectors.toList());
+        
+        CollectionModel<EntityModel<edutechmodel>> collectionModel = CollectionModel.of(ticketModels)
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTicketsPorCliente(clienteId)).withSelfRel())
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTodosLosTickets()).withRel("all-tickets"));
+        
+        return ResponseEntity.ok(collectionModel);
     }
 
     /**
-     * Cambiar estado de un ticket (cerrar, abrir, en proceso).
-     * Método HTTP: PATCH
-     * Endpoint: /api/v1/tickets/{id}/estado
-     * @param id ID del ticket
-     * @param nuevoEstado Nuevo estado (ABIERTA, CERRADA, EN_PROCESO)
-     * @return Ticket con estado actualizado
+     * Cambiar estado de un ticket con enlaces HATEOAS.
      */
     @PatchMapping("/{id}/estado")
-    public ResponseEntity<edutechmodel> cambiarEstadoTicket(
+    public ResponseEntity<EntityModel<edutechmodel>> cambiarEstadoTicket(
             @PathVariable Long id, 
             @RequestParam String nuevoEstado) {
         Optional<edutechmodel> existente = edutechservice.obtenerPorId(id);
@@ -135,26 +130,43 @@ public class edutechcontroller {
             edutechmodel ticket = existente.get();
             ticket.setEstado(nuevoEstado.toUpperCase());
             edutechmodel actualizado = edutechservice.guardar(ticket);
-            return ResponseEntity.ok(actualizado);
+            return ResponseEntity.ok(toEntityModel(actualizado));
         } else {
             return ResponseEntity.notFound().build();
         }
     }
 
     /**
-     * Obtener tickets por estado específico.
-     * Método HTTP: GET
-     * Endpoint: /api/v1/tickets/estado/{estado}
-     * @param estado Estado a filtrar (ABIERTA, CERRADA, EN_PROCESO)
-     * @return Lista de tickets con el estado especificado
+     * Obtener tickets por estado con enlaces HATEOAS.
      */
     @GetMapping("/estado/{estado}")
-    public ResponseEntity<List<edutechmodel>> obtenerTicketsPorEstado(@PathVariable String estado) {
+    public ResponseEntity<CollectionModel<EntityModel<edutechmodel>>> obtenerTicketsPorEstado(@PathVariable String estado) {
         List<edutechmodel> tickets = edutechservice.obtenerTicketsPorEstado(estado.toUpperCase());
-        if (tickets.isEmpty()) {
+        if (tickets.isEmpty()) {    
             return ResponseEntity.noContent().build();
         }
-        return ResponseEntity.ok(tickets);
+        
+        List<EntityModel<edutechmodel>> ticketModels = tickets.stream()
+            .map(this::toEntityModel)
+            .collect(Collectors.toList());
+        
+        CollectionModel<EntityModel<edutechmodel>> collectionModel = CollectionModel.of(ticketModels)
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTicketsPorEstado(estado)).withSelfRel())
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTodosLosTickets()).withRel("all-tickets"));
+        
+        return ResponseEntity.ok(collectionModel);
     }
     
+    /**
+     * Método auxiliar para crear EntityModel con enlaces HATEOAS.
+     */
+    private EntityModel<edutechmodel> toEntityModel(edutechmodel ticket) {
+        return EntityModel.of(ticket)
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTicketPorId(ticket.getId())).withSelfRel())
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTodosLosTickets()).withRel("all-tickets"))
+            .add(linkTo(methodOn(edutechcontroller.class).actualizarTicket(ticket.getId(), null)).withRel("update"))
+            .add(linkTo(methodOn(edutechcontroller.class).eliminarTicket(ticket.getId())).withRel("delete"))
+            .add(linkTo(methodOn(edutechcontroller.class).cambiarEstadoTicket(ticket.getId(), null)).withRel("change-status"))
+            .add(linkTo(methodOn(edutechcontroller.class).obtenerTicketsPorCliente(ticket.getClienteid())).withRel("client-tickets"));
+    }
 }
